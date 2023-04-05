@@ -1,0 +1,724 @@
+---
+title: "RATSS Urine Metabolomics"
+author: "Abishek Arora"
+date: "2023-04-03"
+output: word_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Study Participants
+
+Mass spectrometry-based metabolomics analysis was performed on urine samples from 105 individuals (of which were 48 complete twin-pairs) selected from the Roots for Autism and ADHD Twin Study in Sweden (RATSS). 208 metabolites were identified following an untargeted approach.
+
+## Principal Component Analysis (PCA)
+
+```{r}
+rm(list = ls())
+library("factoextra")
+library("missMDA")
+
+metabo <- read.csv("Add file path here", row.names=1) # Wide format, with sample IDs as row names and metabolites as columns.
+
+# Regression analysis to find missing values:
+nb <- estim_ncpPCA(metabo,method.cv = "Kfold", verbose = FALSE) # estimate the number of components from incomplete data
+nb$ncp # Should be 2
+plot(0:5, nb$criterion, xlab = "nb dim", ylab = "MSEP")
+res.comp <- imputePCA(metabo, ncp = nb$ncp) # iterative PCA algorithm
+
+# PCA using imputed dataset:
+
+metabo.pca <- prcomp(res.comp$completeObs, scale = TRUE)
+fviz_eig(metabo.pca, addlabels = TRUE) # Scree plot
+
+# Add groups to the PCA biplot:
+metadata <- read.csv("Add file path here", row.names=1) # Wide format with sample IDs as row names and metadata as columns.
+
+# Grouped as per ASD diagnosis:
+groups <- as.factor(metadata$ASD_diag[1:105])
+groups <- factor(groups, levels = c("Non-ASD", "ASD"))
+fviz_pca_ind(metabo.pca,
+             col.ind = groups, # color by groups
+             palette = c("#00AFBB",  "#FC4E07"),
+             addEllipses = TRUE, ellipse.level=0.95, # Confidence ellipses
+             mean.point = FALSE,
+             legend.title = "Groups", label = "none",
+             repel = TRUE)
+
+# Contributions of variables to PC1
+fviz_contrib(metabo.pca, choice = "var", axes = 1, top = 10)
+
+# Contributions of variables to PC2
+fviz_contrib(metabo.pca, choice = "var", axes = 2, top = 10)
+```
+
+Following PCA, 9 individuals were identified as outliers and removed from the dataset for further analysis. Following this, the study cohort consisted of 96 participants, out of which 42 are complete twin-pairs.
+
+# Generalised Estimating Equations (GEE)
+
+GEE models with suitable covariates were used for differential metabolomic analysis with predictor variable as (1) ASD diagnosis status and (2) autistic traits (total raw scores from Social Responsiveness Scale 2, SRS-2). The GEE model was first applied to the whole cohort (Model A) and then within twin-pairs (Model B).  
+
+## ASD Diagnosis Status
+
+### Full Cohort
+
+The dataset was loaded for the analysis with the right dataframe structure parameters for Model A and Model B analyses.
+
+```{r}
+rm(list = ls())
+library("drgee")
+
+RATSSc <- read.csv("Add file path here") # Wide format with sample per row, and metadata and metabolites in columns.
+RATSSc[, c(18:225)] <- sapply(RATSSc[, c(18:225)], as.numeric) # Set metabolite columns as numeric.
+
+metabo <- names(RATSSc)[18:225]
+
+# Load function for preparing dataframe of the model outputs:
+merge.all <- function(x, ..., by = "row.names") {
+  L <- list(...)
+  for (i in seq_along(L)) {
+    x <- merge(x, L[[i]], by = by)
+    rownames(x) <- x$Row.names
+    x$Row.names <- NULL
+  }
+  return(x)
+}
+```
+
+#### Model A
+
+```{r}
+# Model A
+Metabo_geeASD1N <- lapply(metabo, function(x){gee(substitute(i
+                                                            ~ ASD_diag + age + sex + BMI + medic + NDD_diag, list(i = as.name(x))), data = RATSSc,  link = "identity" , cond = FALSE , clusterid='family_ID')})
+Metabo_geeASD1N_results <- lapply(Metabo_geeASD1N, summary)
+
+# p values
+pvaluesAN <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD1N_results)) {
+  dfAN <- as.data.frame(Metabo_geeASD1N_results[[i]][[2]])
+  pvaluesAN[[i]] <- dfAN[2,4]
+}
+
+names(pvaluesAN) <- names(RATSSc)[18:225]
+summary_resAN <- unlist(pvaluesAN)
+summary_resAN <- as.data.frame(summary_resAN, add.rownames = True)
+
+# Estimates
+estAN <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD1N_results)) {
+  dfAN <- as.data.frame(Metabo_geeASD1N_results[[i]][[2]])
+  estAN[[i]] <- dfAN[2,1]
+}
+
+names(estAN) <- names(RATSSc)[18:225]
+summary_resAN_est <- unlist(estAN)
+summary_resAN_est <- as.data.frame(summary_resAN_est, add.rownames = True)
+
+# Perform correction for multiple comparisons using the FDR method.
+p.valsAN <- summary_resAN$summary_resAN
+p.adjAN <- p.adjust(p.valsAN, method = "fdr", n = length(p.valsAN))
+names(p.adjAN) <- names(RATSSc)[18:225]
+p.adj.dfAN <- as.data.frame(p.adjAN, add.rownames = True)
+
+# Combine all dataframes for final result.
+ModelA <- merge.all(summary_resAN, summary_resAN_est,p.adj.dfAN)
+colnames(ModelA) <- c("p value", "Estimate", "Adj. p value")
+ModelA
+```
+
+#### Model B
+
+```{r}
+# Model B (age removed as controlled intrinsically):
+Metabo_geeASD2N <- lapply(metabo, function(x){gee(substitute(i
+                                                            ~ ASD_diag + sex + BMI + medic + NDD_diag, list(i = as.name(x))), data = RATSSc,  link = "identity" , cond = TRUE , clusterid='family_ID')})
+Metabo_geeASD2N_results <- lapply(Metabo_geeASD2N, summary)
+
+# p values
+pvaluesBN <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD2N_results)) {
+  dfBN <- as.data.frame(Metabo_geeASD2N_results[[i]][[2]])
+  pvaluesBN[[i]] <- dfBN[1,4]
+}
+
+names(pvaluesBN) <- names(RATSSc)[18:225]
+summary_resBN <- unlist(pvaluesBN)
+summary_resBN <- as.data.frame(summary_resBN, add.rownames = True)
+
+# Estimates
+estBN <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD2N_results)) {
+  dfBN <- as.data.frame(Metabo_geeASD2N_results[[i]][[2]])
+  estBN[[i]] <- dfBN[1,1]
+}
+
+names(estBN) <- names(RATSSc)[18:225]
+summary_resBN_est <- unlist(estBN)
+summary_resBN_est <- as.data.frame(summary_resBN_est, add.rownames = True)
+
+# Perform correction for multiple comparisons using the FDR method.
+p.valsBN <- summary_resBN$summary_resBN
+p.adjBN <- p.adjust(p.valsBN, method = "fdr", n = length(p.valsBN))
+names(p.adjBN) <- names(RATSSc)[18:225]
+p.adj.dfBN <- as.data.frame(p.adjBN, add.rownmaes = TRUE)
+
+# Combine all dataframes for final result.
+ModelB <- merge.all(summary_resBN, summary_resBN_est,p.adj.dfBN)
+colnames(ModelB) <- c("p value", "Estimate", "Adj. p value")
+ModelB
+```
+
+### MZ Twins
+
+The full cohort was subsetted for monozygotic (MZ) twins and the GEE models were applied as previously described.
+
+```{r}
+rm(list = ls())
+library("drgee")
+
+RATSSc <- read.csv("Add file path here") # Wide format with sample per row, and metadata and metabolites in columns.
+RATSSc[, c(18:225)] <- sapply(RATSSc[, c(18:225)], as.numeric) # Set metabolite columns as numeric.
+
+RATSSc <- RATSSc[RATSSc$zygosity == 0,] # Filter for MZ status.
+
+metabo <- names(RATSSc)[18:225]
+
+# Load function for preparing dataframe of the model outputs:
+merge.all <- function(x, ..., by = "row.names") {
+  L <- list(...)
+  for (i in seq_along(L)) {
+    x <- merge(x, L[[i]], by = by)
+    rownames(x) <- x$Row.names
+    x$Row.names <- NULL
+  }
+  return(x)
+}
+```
+
+#### Model A
+
+```{r}
+# Model A
+Metabo_geeASD1N <- lapply(metabo, function(x){gee(substitute(i
+                                                             ~ ASD_diag + age + sex + BMI + medic + NDD_diag, list(i = as.name(x))), data = RATSSc,  link = "identity" , cond = FALSE , clusterid='family_ID')})
+Metabo_geeASD1N_results <- lapply(Metabo_geeASD1N, summary)
+
+# p values
+pvaluesAN <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD1N_results)) {
+  dfAN <- as.data.frame(Metabo_geeASD1N_results[[i]][[2]])
+  pvaluesAN[[i]] <- dfAN[2,4]
+}
+
+names(pvaluesAN) <- names(RATSSc)[18:225]
+summary_resAN <- unlist(pvaluesAN)
+summary_resAN <- as.data.frame(summary_resAN, add.rownames = True)
+
+# Estimates
+estAN <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD1N_results)) {
+  dfAN <- as.data.frame(Metabo_geeASD1N_results[[i]][[2]])
+  estAN[[i]] <- dfAN[2,1]
+}
+
+names(estAN) <- names(RATSSc)[18:225]
+summary_resAN_est <- unlist(estAN)
+summary_resAN_est <- as.data.frame(summary_resAN_est, add.rownames = True)
+
+# Perform correction for multiple comparisons using the FDR method.
+p.valsAN <- summary_resAN$summary_resAN
+p.adjAN <- p.adjust(p.valsAN, method = "fdr", n = length(p.valsAN))
+names(p.adjAN) <- names(RATSSc)[18:225]
+p.adj.dfAN <- as.data.frame(p.adjAN, add.rownames = TRUE)
+
+# Combine all dataframes for final result.
+ModelA <- merge.all(summary_resAN, summary_resAN_est,p.adj.dfAN)
+colnames(ModelA) <- c("p value", "Estimate", "Adj. p value")
+ModelA
+```
+
+#### Model B
+
+```{r}
+# Model B (age and sex removed as controlled intrinsically):
+Metabo_geeASD2N <- lapply(metabo, function(x){gee(substitute(i
+                                                             ~ ASD_diag + BMI + medic + NDD_diag, list(i = as.name(x))), data = RATSSc,  link = "identity" , cond = TRUE , clusterid='family_ID')})
+Metabo_geeASD2N_results <- lapply(Metabo_geeASD2N, summary)
+
+# p values
+pvaluesBN <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD2N_results)) {
+  dfBN <- as.data.frame(Metabo_geeASD2N_results[[i]][[2]])
+  pvaluesBN[[i]] <- dfBN[1,4]
+}
+
+names(pvaluesBN) <- names(RATSSc)[18:225]
+summary_resBN <- unlist(pvaluesBN)
+summary_resBN <- as.data.frame(summary_resBN, add.rownames = True)
+
+# Estimates
+estBN <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD2N_results)) {
+  dfBN <- as.data.frame(Metabo_geeASD2N_results[[i]][[2]])
+  estBN[[i]] <- dfBN[1,1]
+}
+
+names(estBN) <- names(RATSSc)[18:225]
+summary_resBN_est <- unlist(estBN)
+summary_resBN_est <- as.data.frame(summary_resBN, add.rownames = True)
+
+# Perform correction for multiple comparisons using the FDR method.
+p.valsBN <- summary_resBN$summary_resBN
+p.adjBN <- p.adjust(p.valsBN, method = "fdr", n = length(p.valsBN))
+names(p.adjBN) <- names(RATSSc)[18:225]
+p.adj.dfBN <- as.data.frame(p.adjBN, add.rownames = TRUE)
+
+# Combine all dataframes for final result.
+ModelB <- merge.all(summary_resBN, summary_resBN_est,p.adj.dfBN)
+colnames(ModelB) <- c("p value", "Estimate", "Adj. p value")
+ModelB
+```
+
+### DZ Twins
+
+The full cohort was subsetted for dizygotic (DZ) twins and the GEE models were applied as previously described.
+
+```{r}
+rm(list = ls())
+library("drgee")
+
+RATSSc <- read.csv("Add file path here") # Wide format with sample per row, and metadata and metabolites in columns.
+RATSSc[, c(18:225)] <- sapply(RATSSc[, c(18:225)], as.numeric) # Set metabolite columns as numeric.
+
+RATSSc <- RATSSc[RATSSc$zygosity == 1,] # Filter for DZ status.
+
+metabo <- names(RATSSc)[18:225]
+
+# Load function for preparing dataframe of the model outputs:
+merge.all <- function(x, ..., by = "row.names") {
+  L <- list(...)
+  for (i in seq_along(L)) {
+    x <- merge(x, L[[i]], by = by)
+    rownames(x) <- x$Row.names
+    x$Row.names <- NULL
+  }
+  return(x)
+}
+```
+
+#### Model A
+
+```{r}
+# Model A
+Metabo_geeASD1N <- lapply(metabo, function(x){gee(substitute(i
+                                                             ~ ASD_diag + age + sex + BMI + medic + NDD_diag, list(i = as.name(x))), data = RATSSc,  link = "identity" , cond = FALSE , clusterid='family_ID')})
+Metabo_geeASD1N_results <- lapply(Metabo_geeASD1N, summary)
+
+# p values
+pvaluesAN <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD1N_results)) {
+  dfAN <- as.data.frame(Metabo_geeASD1N_results[[i]][[2]])
+  pvaluesAN[[i]] <- dfAN[2,4]
+}
+
+names(pvaluesAN) <- names(RATSSc)[18:225]
+summary_resAN <- unlist(pvaluesAN)
+summary_resAN <- as.data.frame(summary_resAN, add.rownames = True)
+
+# Estimates
+estAN <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD1N_results)) {
+  dfAN <- as.data.frame(Metabo_geeASD1N_results[[i]][[2]])
+  estAN[[i]] <- dfAN[2,1]
+}
+
+names(estAN) <- names(RATSSc)[18:225]
+summary_resAN_est <- unlist(estAN)
+summary_resAN_est <- as.data.frame(summary_resAN_est, add.rownames = True)
+
+# Perform correction for multiple comparisons using the FDR method.
+p.valsAN <- summary_resAN$summary_resAN
+p.adjAN <- p.adjust(p.valsAN, method = "fdr", n = length(p.valsAN))
+names(p.adjAN) <- names(RATSSc)[18:225]
+p.adj.dfAN <- as.data.frame(p.adjAN, add.rownames = TRUE)
+
+# Combine all dataframes for final result.
+ModelA <- merge.all(summary_resAN, summary_resAN_est,p.adj.dfAN)
+colnames(ModelA) <- c("p value", "Estimate", "Adj. p value")
+ModelA
+```
+
+#### Model B
+
+```{r}
+# Model B (age and sex removed as controlled intrinsically):
+Metabo_geeASD2N <- lapply(metabo, function(x){gee(substitute(i
+                                                             ~ ASD_diag + BMI + medic + NDD_diag, list(i = as.name(x))), data = RATSSc,  link = "identity" , cond = TRUE , clusterid='family_ID')})
+Metabo_geeASD2N_results <- lapply(Metabo_geeASD2N, summary)
+
+# p values
+pvaluesBN <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD2N_results)) {
+  dfBN <- as.data.frame(Metabo_geeASD2N_results[[i]][[2]])
+  pvaluesBN[[i]] <- dfBN[1,4]
+}
+
+names(pvaluesBN) <- names(RATSSc)[18:225]
+summary_resBN <- unlist(pvaluesBN)
+summary_resBN <- as.data.frame(summary_resBN, add.rownames = True)
+
+# Estimates
+estBN <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD2N_results)) {
+  dfBN <- as.data.frame(Metabo_geeASD2N_results[[i]][[2]])
+  estBN[[i]] <- dfBN[1,1]
+}
+
+names(estBN) <- names(RATSSc)[18:225]
+summary_resBN_est <- unlist(estBN)
+summary_resBN_est <- as.data.frame(summary_resBN_est, add.rownames = True)
+
+# Perform correction for multiple comparisons using the FDR method.
+p.valsBN <- summary_resBN$summary_resBN
+p.adjBN <- p.adjust(p.valsBN, method = "fdr", n = length(p.valsBN))
+names(p.adjBN) <- names(RATSSc)[18:225]
+p.adj.dfBN <- as.data.frame(p.adjBN, add.rownames = TRUE)
+
+# Combine all dataframes for final result.
+ModelB <- merge.all(summary_resBN, summary_resBN_est,p.adj.dfBN)
+colnames(ModelB) <- c("p value", "Estimate", "Adj. p value")
+ModelB
+```
+
+## Austistic Traits
+
+### Full Cohort
+
+The dataset was loaded for the analysis with the right dataframe structure parameters for Model A and Model B analyses.
+```{r}
+rm(list = ls())
+library("drgee")
+
+RATSSc <- read.csv("Add file path here") # Wide format with sample per row, and metadata and metabolites in columns.
+RATSSc[, c(20:227)] <- sapply(RATSSc[, c(20:227)], as.numeric) # Set metabolite columns as numeric.
+
+metabo <- names(RATSSc)[20:227]
+
+# Load function for preparing dataframe of the model outputs:
+merge.all <- function(x, ..., by = "row.names") {
+  L <- list(...)
+  for (i in seq_along(L)) {
+    x <- merge(x, L[[i]], by = by)
+    rownames(x) <- x$Row.names
+    x$Row.names <- NULL
+  }
+  return(x)
+}
+```
+
+#### Model A
+
+```{r}
+# Model A
+Metabo_geeASD1 <- lapply(metabo, function(x){gee(substitute(i
+                                                            ~ SRS_tot + age + sex + BMI + medic + IQ_GAI, list(i = as.name(x))), data = RATSSc,  link = "identity" , cond = FALSE , clusterid='family_ID')})
+Metabo_geeASD1_results <- lapply(Metabo_geeASD1, summary)
+
+# p values
+pvaluesA <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD1_results)) {
+  dfA <- as.data.frame(Metabo_geeASD1_results[[i]][[2]])
+  pvaluesA[[i]] <- dfA[2,4]
+}
+
+names(pvaluesA) <- names(RATSSc)[20:227]
+summary_resA <- unlist(pvaluesA)
+summary_resA <- as.data.frame(summary_resA, add.rownames = True)
+
+# Estimates
+estA <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD1_results)) {
+  dfA <- as.data.frame(Metabo_geeASD1_results[[i]][[2]])
+  estA[[i]] <- dfA[2,1]
+}
+
+names(estA) <- names(RATSSc)[20:227]
+summary_resA_est <- unlist(estA)
+summary_resA_est <- as.data.frame(summary_resA_est, add.rownames = True)
+
+# Perform correction for multiple comparisons using the FDR method.
+p.valsA <- summary_resA$summary_resA
+p.adjA <- p.adjust(p.valsA, method = "fdr", n = length(p.valsA))
+names(p.adjA) <- names(RATSSc)[20:227]
+p.adj.dfA <- as.data.frame(p.adjA, add_rownames = TRUE)
+
+# Combine all dataframes for final result.
+ModelA <- merge.all(summary_resA, summary_resA_est,p.adj.dfA)
+colnames(ModelA) <- c("p value", "Estimate", "Adj. p value")
+ModelA
+```
+
+#### Model B
+
+```{r}
+# Model B (age removed as controlled intrinsically)
+Metabo_geeASD2 <- lapply(metabo, function(x){gee(substitute(i
+                                                            ~ SRS_tot + sex + BMI + medic + IQ_GAI, list(i = as.name(x))), data = RATSSc,  link = "identity" , cond = TRUE , clusterid='family_ID')})
+Metabo_geeASD2_results <- lapply(Metabo_geeASD2, summary)
+
+# p values
+pvaluesB <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD2_results)) {
+  dfB <- as.data.frame(Metabo_geeASD2_results[[i]][[2]])
+  pvaluesB[[i]] <- dfB[1,4]
+}
+
+names(pvaluesB) <- names(RATSSc)[20:227]
+summary_resB <- unlist(pvaluesB)
+summary_resB <- as.data.frame(summary_resB, add.rownames = True)
+
+# Estimates
+estB <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD2_results)) {
+  dfB <- as.data.frame(Metabo_geeASD2_results[[i]][[2]])
+  estB[[i]] <- dfB[1,1]
+}
+
+names(estB) <- names(RATSSc)[20:227]
+summary_resB_est <- unlist(estB)
+summary_resB_est <- as.data.frame(summary_resB_est, add.rownames = True)
+
+# Perform correction for multiple comparisons using the FDR method.
+p.valsB <- summary_resB$summary_resB
+p.adjB <- p.adjust(p.valsB, method = "fdr", n = length(p.valsB))
+names(p.adjB) <- names(RATSSc)[20:227]
+p.adj.dfB <- as.data.frame(p.adjB, add_rownames = TRUE)
+
+# Combine all dataframes for final result.
+ModelB <- merge.all(summary_resB, summary_resB_est,p.adj.dfB)
+colnames(ModelB) <- c("p value", "Estimate", "Adj. p value")
+ModelB
+```
+
+### MZ Twins
+
+The full cohort was subsetted for monozygotic (MZ) twins and the GEE models were applied as previously described.
+
+```{r}
+rm(list = ls())
+library("drgee")
+
+RATSSc <- read.csv("Add file path here") # Wide format with sample per row, and metadata and metabolites in columns.
+RATSSc[, c(20:227)] <- sapply(RATSSc[, c(20:227)], as.numeric) # Set metabolite columns as numeric.
+
+RATSSc <- RATSSc[RATSSc$zygosity == 0,] # Filter for MZ status.
+
+metabo <- names(RATSSc)[20:227]
+
+# Load function for preparing dataframe of the model outputs:
+merge.all <- function(x, ..., by = "row.names") {
+  L <- list(...)
+  for (i in seq_along(L)) {
+    x <- merge(x, L[[i]], by = by)
+    rownames(x) <- x$Row.names
+    x$Row.names <- NULL
+  }
+  return(x)
+}
+```
+
+#### Model A
+
+```{r}
+# Model A
+Metabo_geeASD1 <- lapply(metabo, function(x){gee(substitute(i
+                                                            ~ SRS_tot + age + sex + BMI + medic + IQ_GAI, list(i = as.name(x))), data = RATSSc,  link = "identity" , cond = FALSE , clusterid='family_ID')})
+Metabo_geeASD1_results <- lapply(Metabo_geeASD1, summary)
+
+# p values
+pvaluesA <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD1_results)) {
+  dfA <- as.data.frame(Metabo_geeASD1_results[[i]][[2]])
+  pvaluesA[[i]] <- dfA[2,4]
+}
+
+names(pvaluesA) <- names(RATSSc)[20:227]
+summary_resA <- unlist(pvaluesA)
+summary_resA <- as.data.frame(summary_resA, add.rownames = True)
+
+# Estimates
+estA <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD1_results)) {
+  dfA <- as.data.frame(Metabo_geeASD1_results[[i]][[2]])
+  estA[[i]] <- dfA[2,1]
+}
+
+names(estA) <- names(RATSSc)[20:227]
+summary_resA_est <- unlist(estA)
+summary_resA_est <- as.data.frame(summary_resA_est, add.rownames = True)
+
+# Perform correction for multiple comparisons using the FDR method.
+p.valsA <- summary_resA$summary_resA
+p.adjA <- p.adjust(p.valsA, method = "fdr", n = length(p.valsA))
+names(p.adjA) <- names(RATSSc)[20:227]
+p.adj.dfA <- as.data.frame(p.adjA, add_rownames = TRUE)
+
+# Combine all dataframes for final result.
+ModelA <- merge.all(summary_resA, summary_resA_est,p.adj.dfA)
+colnames(ModelA) <- c("p value", "Estimate", "Adj. p value")
+ModelA
+```
+
+#### Model B
+
+````{r}
+# Model B (age and sex removed as controlled intrinsically):
+Metabo_geeASD2 <- lapply(metabo, function(x){gee(substitute(i
+                                                            ~ SRS_tot + BMI + medic + IQ_GAI, list(i = as.name(x))), data = RATSSc,  link = "identity" , cond = TRUE , clusterid='family_ID')})
+Metabo_geeASD2_results <- lapply(Metabo_geeASD2, summary)
+
+# p values
+pvaluesB <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD2_results)) {
+  dfB <- as.data.frame(Metabo_geeASD2_results[[i]][[2]])
+  pvaluesB[[i]] <- dfB[1,4]
+}
+
+names(pvaluesB) <- names(RATSSc)[20:227]
+summary_resB <- unlist(pvaluesB)
+summary_resB <- as.data.frame(summary_resB, add.rownames = True)
+
+# Estimates
+estB <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD2_results)) {
+  dfB <- as.data.frame(Metabo_geeASD2_results[[i]][[2]])
+  estB[[i]] <- dfB[1,1]
+}
+
+names(estB) <- names(RATSSc)[20:227]
+summary_resB_est <- unlist(estB)
+summary_resB_est <- as.data.frame(summary_resB_est, add.rownames = True)
+
+# Perform correction for multiple comparisons using the FDR method.
+p.valsB <- summary_resB$summary_resB
+p.adjB <- p.adjust(p.valsB, method = "fdr", n = length(p.valsB))
+names(p.adjB) <- names(RATSSc)[20:227]
+p.adj.dfB <- as.data.frame(p.adjB, add.rownames = TRUE)
+
+# Combine all dataframes for final result.
+ModelB <- merge.all(summary_resB, summary_resB_est,p.adj.dfB)
+colnames(ModelB) <- c("p value", "Estimate", "Adj. p value")
+ModelB
+```
+
+### DZ Twins
+
+The full cohort was subsetted for dizygotic (DZ) twins and the GEE models were applied as previously described.
+
+```{r}
+rm(list = ls())
+library("drgee")
+
+RATSSc <- read.csv("Add file path here") # Wide format with sample per row, and metadata and metabolites in columns.
+RATSSc[, c(20:227)] <- sapply(RATSSc[, c(20:227)], as.numeric) # Set metabolite columns as numeric.
+
+RATSSc <- RATSSc[RATSSc$zygosity == 1,] # Filter for DZ status.
+
+metabo <- names(RATSSc)[20:227]
+
+# Load function for preparing dataframe of the model outputs:
+merge.all <- function(x, ..., by = "row.names") {
+  L <- list(...)
+  for (i in seq_along(L)) {
+    x <- merge(x, L[[i]], by = by)
+    rownames(x) <- x$Row.names
+    x$Row.names <- NULL
+  }
+  return(x)
+}
+```
+
+#### Model A
+
+```{r}
+# Model A
+Metabo_geeASD1 <- lapply(metabo, function(x){gee(substitute(i
+                                                            ~ SRS_tot + age + sex + BMI + medic + IQ_GAI, list(i = as.name(x))), data = RATSSc,  link = "identity" , cond = FALSE , clusterid='family_ID')})
+Metabo_geeASD1_results <- lapply(Metabo_geeASD1, summary)
+
+# p values
+pvaluesA <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD1_results)) {
+  dfA <- as.data.frame(Metabo_geeASD1_results[[i]][[2]])
+  pvaluesA[[i]] <- dfA[2,4]
+}
+
+names(pvaluesA) <- names(RATSSc)[20:227]
+summary_resA <- unlist(pvaluesA)
+summary_resA <- as.data.frame(summary_resA, add.rownames = True)
+
+# Estimates
+estA <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD1_results)) {
+  dfA <- as.data.frame(Metabo_geeASD1_results[[i]][[2]])
+  estA[[i]] <- dfA[2,1]
+}
+
+names(estA) <- names(RATSSc)[20:227]
+summary_resA_est <- unlist(estA)
+summary_resA_est <- as.data.frame(summary_resA_est, add.rownames = True)
+
+# Perform correction for multiple comparisons using the FDR method.
+p.valsA <- summary_resA$summary_resA
+p.adjA <- p.adjust(p.valsA, method = "fdr", n = length(p.valsA))
+names(p.adjA) <- names(RATSSc)[20:227]
+p.adj.dfA <- as.data.frame(p.adjA, add.rownames = TRUE)
+
+# Combine all dataframes for final result.
+ModelA <- merge.all(summary_resA, summary_resA_est,p.adj.dfA)
+colnames(ModelA) <- c("p value", "Estimate", "Adj. p value")
+ModelA
+```
+
+#### Model B
+
+```{r}
+# Model B (age and sex removed as controlled intrinsically)
+Metabo_geeASD2 <- lapply(metabo, function(x){gee(substitute(i
+                                                            ~ SRS_tot + BMI + medic + IQ_GAI, list(i = as.name(x))), data = RATSSc,  link = "identity" , cond = TRUE , clusterid='family_ID')})
+Metabo_geeASD2_results <- lapply(Metabo_geeASD2, summary)
+
+# p values
+pvaluesB <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD2_results)) {
+  dfB <- as.data.frame(Metabo_geeASD2_results[[i]][[2]])
+  pvaluesB[[i]] <- dfB[1,4]
+}
+
+names(pvaluesB) <- names(RATSSc)[20:227]
+summary_resB <- unlist(pvaluesB)
+summary_resB <- as.data.frame(summary_resB, add.rownames = True)
+
+# Estimates
+estB <- vector(mode = "list", length = 208)
+for (i in 1:length(Metabo_geeASD2_results)) {
+  dfB <- as.data.frame(Metabo_geeASD2_results[[i]][[2]])
+  estB[[i]] <- dfB[1,1]
+}
+
+names(estB) <- names(RATSSc)[20:227]
+summary_resB_est <- unlist(estB)
+summary_resB_est <- as.data.frame(summary_resB_est, add.rownames = True)
+
+# Perform correction for multiple comparisons using the FDR method.
+p.valsB <- summary_resB$summary_resB
+p.adjB <- p.adjust(p.valsB, method = "fdr", n = length(p.valsB))
+names(p.adjB) <- names(RATSSc)[20:227]
+p.adj.dfB <- as.data.frame(p.adjB, add.rownames = TRUE)
+
+# Combine all dataframes for final result.
+ModelB <- merge.all(summary_resB, summary_resB_est,p.adj.dfB)
+colnames(ModelB) <- c("p value", "Estimate", "Adj. p value")
+ModelB
+```
