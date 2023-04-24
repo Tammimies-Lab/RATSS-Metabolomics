@@ -1,12 +1,11 @@
-# Urine metabolomic profiles of twins with autism and autistic traits
-Abishek Arora (1,2), Francesca Mastropasqua (1,2), Sven Bölte (1,3) and Kristiina Tammimies (1,2)
+# Urine metabolomic profiles of autism and autistic traits – a twin study
+Abishek Arora (1,2), Francesca Mastropasqua (1,2), Sven Bölte (1,3,4) and Kristiina Tammimies (1,2)
 
-1.	Center of Neurodevelopmental Disorders (KIND), Centre for Psychiatry Research, Department of Women's and Children's Health, Karolinska Institutet, and Child and Adolescent Psychiatry, Stockholm Health Care Services, Stockholm County Council, Stockholm, Sweden
-2.	Astrid Lindgren Children’s Hospital, Karolinska University Hospital, Region Stockholm, Stockholm, Sweden 
-3.	Curtin Autism Research Group, School of Occupational Therapy, Social Work and Speech Pathology, Curtin University, Perth, Western Australia
+1. Center of Neurodevelopmental Disorders (KIND), Centre for Psychiatry Research, Department of Women's and Children's Health, Karolinska Institutet, Stockholm, Sweden
+2. Astrid Lindgren Children’s Hospital, Karolinska University Hospital, Region Stockholm, Stockholm, Sweden
+3. Child and Adolescent Psychiatry, Stockholm Health Care Services, Region Stockholm, Stockholm, Sweden
+4. Curtin Autism Research Group, Curtin School of Allied Health, Curtin University, Perth, Western Australia
 Correspondence: [kristiina.tammimies@ki.se](mailto:kristiina.tammimies@ki.se)
-
-**Preprint available on medRxiv (DOI: [ADD DOI HERE](ADD LINK HERE))**
 
 ## Analysis Pipeline
 
