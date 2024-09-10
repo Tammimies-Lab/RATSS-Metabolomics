@@ -16,4 +16,4 @@ Thank you for showing interest in our manuscript. In this GitHub repository you 
 
 ### Differential Metabolomics
 
-The the R Markdown file required for differential metabolomics analysis is included in this repository. Please refer to the methods section of the manuscript for details regarding the steps followed. In brief, differential metabolomic analysis for 208 metabolites was performed in the study cohort (N=105) using the *drgee* package in R, for overall effects and differences within twin-pairs using generalised estimating equations (GEE) models with suitable covariates.
+The [R Markdown file](Differential_Metabolomics.Rmd) required for differential metabolomics analysis is included in this repository. Please refer to the methods section of the manuscript for details regarding the steps followed. In brief, differential metabolomic analysis for 208 metabolites was performed in the study cohort (N=105) using the *drgee* package in R, for overall effects and differences within twin-pairs using generalised estimating equations (GEE) models with suitable covariates.
