@@ -8,11 +8,11 @@ Abishek Arora (1,2), Francesca Mastropasqua (1,2), Sven Bölte (1,3,4) and Krist
 
 *Correspondence: [kristiina.tammimies@ki.se](mailto:kristiina.tammimies@ki.se)
 
-**Preprint available on medRxiv (DOI: [10.1101/2023.04.24.23289030](https://doi.org/10.1101/2023.04.24.23289030))**
+**Published in *PLoS One* (2024), DOI: [10.1371/journal.pone.0308224](https://doi.org/10.1371/journal.pone.0308224) | PubMed: [39226293](https://pubmed.ncbi.nlm.nih.gov/39226293/)**
 
 ## Analysis Pipeline
 
-Thank you for showing interest in our manuscript. In this GitHub repository you will find the source code required to replicate our figures using R. In accordance with our Ethical approval and health data management requirements, we are unable to share patient information in the public domain.
+Thank you for showing interest in our manuscript. In this GitHub repository you will find the source code required to replicate our analyses and figures using R. The data sets are accessible, after necessary clearances, through the Swedish National Data Service’s (SND) research data catalogue (DOI: [10.48723/6821-pn89](https://doi.org/10.48723/6821-pn89)).
 
 ### Differential Metabolomics
 
